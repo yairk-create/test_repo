@@ -1,46 +1,72 @@
 ---
 - hosts: all
-  become: yes
+  become: no
   tasks:
-    - name: Append custom PS1 prompt
-      lineinfile:
-        path: "~/.bashrc"
-        line: 'export PS1="\[\033[95m\]\u@\h \[\033[32m\]\W\[\033[33m\] [\$(git symbolic-ref --short HEAD 2>/dev/null)]\[\033[00m\]\$ "'
-        state: present
-        insertafter: EOF
+    - name: Backup existing .bashrc
+      copy:
+        src: "~/.bashrc"
+        dest: "~/.bashrc.backup"
+        remote_src: yes
+        force: no
 
-    - name: Append .local/bin to PATH
-      lineinfile:
-        path: "~/.bashrc"
-        line: 'export PATH=$HOME/.local/bin:$PATH'
-        state: present
-        insertafter: EOF
+    - name: Create a new .bashrc with custom configurations
+      copy:
+        content: |
+          # Existing .bashrc content
+          # ~/.bashrc: executed by bash(1) for non-login shells.
+          # see /usr/share/doc/bash/examples/startup-files (in the package bash-doc)
+          # for examples
 
-    - name: Append /sbin and /usr/sbin to PATH
-      lineinfile:
-        path: "~/.bashrc"
-        line: 'export PATH=$PATH:/sbin:/usr/sbin'
-        state: present
-        insertafter: EOF
+          # If not running interactively, don't do anything
+          case $- in
+              *i*) ;;
+                *) return;;
+          esac
 
-    - name: Append DISPLAY
-      lineinfile:
-        path: "~/.bashrc"
-        line: 'export DISPLAY=:0'
-        state: present
-        insertafter: EOF
+          # don't put duplicate lines or lines starting with space in the history.
+          # See bash(1) for more options
+          HISTCONTROL=ignoreboth
+
+          # append to the history file, don't overwrite it
+          shopt -s histappend
+
+          # for setting history length see HISTSIZE and HISTFILESIZE in bash(1)
+          HISTSIZE=1000
+          HISTFILESIZE=2000
+
+          # check the window size after each command and, if necessary,
+          # update the values of LINES and COLUMNS.
+          shopt -s checkwinsize
+
+          # make less more friendly for non-text input files, see lesspipe(1)
+          [ -x /usr/bin/lesspipe ] && eval "$(SHELL=/bin/sh lesspipe)"
+
+          # set variable identifying the chroot you work in (used in the prompt below)
+          if [ -z "${debian_chroot:-}" ] && [ -r /etc/debian_chroot ]; then
+              debian_chroot=$(cat /etc/debian_chroot)
+          fi
+
+          # Custom Configurations
+          export PS1="\[\033[95m\]\u@\h \[\033[32m\]\W\[\033[33m\] [\$(git symbolic-ref --short HEAD 2>/dev/null)]\[\033[00m\]\$ "
+          export PATH=$HOME/.local/bin:$PATH
+          export PATH=$PATH:/sbin:/usr/sbin
+          export DISPLAY=:0
+        dest: "~/.bashrc"
+        mode: '0644'
 
     - name: Verify .bashrc modifications
       shell: 
         cmd: |
-          grep 'export PS1=' ~/.bashrc
-          grep 'export PATH=$HOME/.local/bin:$PATH' ~/.bashrc
-          grep 'export PATH=$PATH:/sbin:/usr/sbin' ~/.bashrc
-          grep 'export DISPLAY=:0' ~/.bashrc
-      register: bashrc_check
+          source ~/.bashrc
+          echo "PS1: $PS1"
+          echo "PATH:"
+          echo "$PATH" | tr ':' '\n'
+          echo "DISPLAY: $DISPLAY"
+      register: bashrc_verification
       changed_when: false
-      ignore_errors: true
+      args:
+        executable: /bin/bash
 
     - name: Display verification results
       debug:
-        var: bashrc_check.stdout_lines
+        var: bashrc_verification.stdout_lines
