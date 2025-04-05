@@ -1,13 +1,17 @@
 ---
 - name: Test sudo permissions
   hosts: web_servers
-  become: yes
+  become: yes  # Request privilege escalation
   
   tasks:
-  - name: Test sudo
+  - name: Test sudo access
     command: whoami
     register: whoami_result
-  
+
   - name: Display result
     debug:
       var: whoami_result.stdout
+    
+  - name: Check effective user
+    debug:
+      msg: "If sudo is working correctly, this should show 'root'. Current user is {{ whoami_result.stdout }}"
