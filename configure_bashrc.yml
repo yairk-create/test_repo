@@ -1,67 +1,55 @@
 ---
 - hosts: all
-  become: yes
+  become: no
   tasks:
     - name: Backup existing .bashrc
       copy:
         src: "~/.bashrc"
         dest: "~/.bashrc.backup"
         remote_src: yes
-        force: yes
+        force: no
 
     - name: Create a new .bashrc with custom configurations
       copy:
         content: |
-          # Existing .bashrc content
+          # Existing bash configuration
           # ~/.bashrc: executed by bash(1) for non-login shells.
-          # see /usr/share/doc/bash/examples/startup-files (in the package bash-doc)
-          # for examples
-
+          
           # If not running interactively, don't do anything
           case $- in
               *i*) ;;
                 *) return;;
           esac
 
-          # don't put duplicate lines or lines starting with space in the history.
-          # See bash(1) for more options
+          # Preserve existing history settings
           HISTCONTROL=ignoreboth
-
-          # append to the history file, don't overwrite it
           shopt -s histappend
-
-          # for setting history length see HISTSIZE and HISTFILESIZE in bash(1)
           HISTSIZE=1000
           HISTFILESIZE=2000
 
-          # check the window size after each command and, if necessary,
-          # update the values of LINES and COLUMNS.
+          # Check window size after each command
           shopt -s checkwinsize
 
-          # make less more friendly for non-text input files, see lesspipe(1)
-          [ -x /usr/bin/lesspipe ] && eval "$(SHELL=/bin/sh lesspipe)"
-
-          # set variable identifying the chroot you work in (used in the prompt below)
-          if [ -z "${debian_chroot:-}" ] && [ -r /etc/debian_chroot ]; then
-              debian_chroot=$(cat /etc/debian_chroot)
-          fi
-
-          # Custom Configurations
+          # Custom Prompt and Path Configurations
           export PS1="\[\033[95m\]\u@\h \[\033[32m\]\W\[\033[33m\] [\$(git symbolic-ref --short HEAD 2>/dev/null)]\[\033[00m\]\$ "
-          export PATH=$HOME/.local/bin:$PATH
+          export PATH=$HOME/.local/bin:$HOME/bin:$PATH
           export PATH=$PATH:/sbin:/usr/sbin
           export DISPLAY=:0
         dest: "~/.bashrc"
         mode: '0644'
 
-    - name: Verify .bashrc modifications
+    - name: Verify .bashrc configuration
       shell: 
         cmd: |
           source ~/.bashrc
-          echo "PS1: $PS1"
+          echo "PS1 Setting:"
+          echo "$PS1"
+          echo "---"
           echo "PATH:"
           echo "$PATH" | tr ':' '\n'
-          echo "DISPLAY: $DISPLAY"
+          echo "---"
+          echo "DISPLAY:"
+          echo "$DISPLAY"
       register: bashrc_verification
       changed_when: false
       args:
