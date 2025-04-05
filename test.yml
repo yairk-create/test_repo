@@ -1,11 +1,11 @@
 ---
 - name: Test sudo permissions
   hosts: web_servers
-  become: yes  # Request privilege escalation
   
   tasks:
-  - name: Test sudo access
+  - name: Test sudo access with explicit become
     command: whoami
+    become: yes
     register: whoami_result
 
   - name: Display result
