@@ -14,16 +14,29 @@
         force_apt_get: yes
       when: ansible_os_family == "Debian"
 
-    - name: Update yum cache (RedHat/CentOS)
+    - name: Update dnf cache (Rocky Linux 8+)
+      dnf:
+        update_cache: yes
+      when: ansible_distribution == "Rocky" and ansible_distribution_major_version|int >= 8
+
+    - name: Upgrade all packages (Rocky Linux 8+)
+      dnf:
+        name: '*'
+        state: latest
+      when: ansible_distribution == "Rocky" and ansible_distribution_major_version|int >= 8
+
+    - name: Update yum cache (Rocky Linux 7 and other RHEL family)
       yum:
         update_cache: yes
-      when: ansible_os_family == "RedHat"
+      when: (ansible_distribution == "Rocky" and ansible_distribution_major_version|int < 8) or 
+            (ansible_os_family == "RedHat" and ansible_distribution != "Fedora" and ansible_distribution != "Rocky")
 
-    - name: Upgrade all packages (RedHat/CentOS)
+    - name: Upgrade all packages (Rocky Linux 7 and other RHEL family)
       yum:
         name: '*'
         state: latest
-      when: ansible_os_family == "RedHat"
+      when: (ansible_distribution == "Rocky" and ansible_distribution_major_version|int < 8) or 
+            (ansible_os_family == "RedHat" and ansible_distribution != "Fedora" and ansible_distribution != "Rocky")
 
     - name: Update dnf cache (Fedora)
       dnf:
