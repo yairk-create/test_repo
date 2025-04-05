@@ -1,0 +1,54 @@
+---
+# Playbook for automated package installation and Vim setup
+- name: Setup Development Environment
+  hosts: all
+  become: yes  # This enables sudo for all tasks that need it
+  gather_facts: yes  # Enables OS detection
+
+  vars:
+    script_path: /tmp/setup_script.sh
+    log_dir: "{{ ansible_env.HOME }}/logs"
+
+  tasks:
+    - name: Ensure log directory exists
+      file:
+        path: "{{ log_dir }}"
+        state: directory
+        mode: '0755'
+
+    - name: Copy setup script to remote hosts
+      copy:
+        src: ./setup_script.sh  # You'll need to have the script file in the same directory as the playbook
+        dest: "{{ script_path }}"
+        mode: '0755'
+
+    - name: Execute setup script
+      shell: "{{ script_path }}"
+      register: script_output
+      # Change user if needed, Ansible will handle sudo
+      # become_user: "{{ ansible_user }}"
+
+    - name: Display script output
+      debug:
+        var: script_output.stdout_lines
+
+    - name: Check if script log exists
+      stat:
+        path: "{{ log_dir }}/auto_config.log"
+      register: log_file
+
+    - name: Display log file content if available
+      shell: "cat {{ log_dir }}/auto_config.log"
+      register: log_content
+      when: log_file.stat.exists
+      changed_when: false
+
+    - name: Show log content
+      debug:
+        var: log_content.stdout_lines
+      when: log_file.stat.exists
+
+    - name: Clean up setup script
+      file:
+        path: "{{ script_path }}"
+        state: absent
