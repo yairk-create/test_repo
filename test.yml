@@ -1,0 +1,7 @@
+- name: Test sudo
+  command: whoami
+  register: whoami_result
+  
+- name: Display result
+  debug:
+    var: whoami_result.stdout
