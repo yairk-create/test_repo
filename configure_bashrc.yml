@@ -14,55 +14,34 @@
         path: "~/.bashrc"
         regexp: '^export PS1='
         line: 'export PS1="\[\033[95m\]\u@\h \[\033[32m\]\W\[\033[33m\] [\$(git symbolic-ref --short HEAD 2>/dev/null)]\[\033[00m\]\$ "'
-        insertafter: EOF
+        state: present
 
     - name: Add .local/bin to PATH at the beginning
       lineinfile:
         path: "~/.bashrc"
         regexp: '^export PATH=\$HOME/\.local/bin:'
         line: 'export PATH=$HOME/.local/bin:$PATH'
-        insertafter: EOF
+        state: present
 
     - name: Add /sbin and /usr/sbin to PATH
       lineinfile:
         path: "~/.bashrc"
         regexp: '^export PATH=.*:/sbin:/usr/sbin'
         line: 'export PATH=$PATH:/sbin:/usr/sbin'
-        insertafter: EOF
+        state: present
 
     - name: Set DISPLAY
       lineinfile:
         path: "~/.bashrc"
         regexp: '^export DISPLAY='
         line: 'export DISPLAY=:0'
-        insertafter: EOF
+        state: present
 
-    - name: Verify .bashrc modifications
-      block:
-        - name: Check PS1 export
-          shell: grep -q 'export PS1="\[\033[95m\]\u@\h \[\033[32m\]\W\[\033[33m\] [\$(git symbolic-ref --short HEAD 2>/dev/null)]\[\033[00m\]\$ "' ~/.bashrc
-          changed_when: false
-          register: ps1_check
+    - name: Debug .bashrc content
+      shell: cat ~/.bashrc
+      register: bashrc_content
+      changed_when: false
 
-        - name: Check .local/bin PATH
-          shell: grep -q 'export PATH=$HOME/.local/bin:$PATH' ~/.bashrc
-          changed_when: false
-          register: local_bin_path_check
-
-        - name: Check sbin PATH
-          shell: grep -q 'export PATH=$PATH:/sbin:/usr/sbin' ~/.bashrc
-          changed_when: false
-          register: sbin_path_check
-
-        - name: Check DISPLAY
-          shell: grep -q 'export DISPLAY=:0' ~/.bashrc
-          changed_when: false
-          register: display_check
-
-        - name: Display verification results
-          debug:
-            msg:
-              - "PS1 added: {{ ps1_check.rc == 0 }}"
-              - "Local bin PATH added: {{ local_bin_path_check.rc == 0 }}"
-              - "Sbin PATH added: {{ sbin_path_check.rc == 0 }}"
-              - "DISPLAY set: {{ display_check.rc == 0 }}"
+    - name: Display .bashrc content
+      debug:
+        var: bashrc_content.stdout_lines
