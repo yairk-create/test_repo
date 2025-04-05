@@ -2,10 +2,7 @@
 - hosts: all
   become: yes
   vars:
-    backup_dir: "/root/bashrc_backups"
     custom_bashrc_content: |
-      # Custom bash configuration
-      
       # If not running interactively, don't do anything
       case $- in
           *i*) ;;
@@ -21,6 +18,25 @@
       # Check window size after each command
       shopt -s checkwinsize
 
+      # Remove duplicate PATH entries and clean up PATH
+      deduplicate_path() {
+          local PATH_LIST
+          IFS=':' read -ra PATH_LIST <<< "$1"
+          local UNIQUE_PATHS=()
+          declare -A seen=()
+          
+          for p in "${PATH_LIST[@]}"; do
+              if [[ -z "${seen[$p]}" ]]; then
+                  seen[$p]=1
+                  UNIQUE_PATHS+=("$p")
+              fi
+          done
+          
+          local IFS=':'
+          echo "${UNIQUE_PATHS[*]}"
+      }
+      export PATH=$(deduplicate_path "$PATH")
+
       # Custom Prompt and Path Configurations
       export PS1="\[\033[95m\]\u@\h \[\033[32m\]\W\[\033[33m\] [\$(git symbolic-ref --short HEAD 2>/dev/null)]\[\033[00m\]\$ "
       export PATH=$HOME/.local/bin:$HOME/bin:$PATH
@@ -30,7 +46,7 @@
   tasks:
     - name: Create backup directory
       file:
-        path: "{{ backup_dir }}"
+        path: "/root/bashrc_backups"
         state: directory
         mode: '0755'
 
@@ -46,7 +62,7 @@
       become_user: "{{ item.split(':')[0] }}"
       copy:
         src: "~/.bashrc"
-        dest: "{{ backup_dir }}/bashrc_{{ item.split(':')[0] }}_$(date +%Y%m%d_%H%M%S)"
+        dest: "/root/bashrc_backups/bashrc_{{ item.split(':')[0] }}_$(date +%Y%m%d_%H%M%S)"
         remote_src: yes
       loop: "{{ user_list.stdout_lines }}"
       loop_control:
@@ -76,16 +92,16 @@
     - name: Verify configurations for specific users
       shell: 
         cmd: |
-          echo "Backups saved in {{ backup_dir }}:"
-          ls -l "{{ backup_dir }}"
+          echo "Backups saved in /root/bashrc_backups:"
+          ls -l "/root/bashrc_backups"
           echo "---"
           echo "Verifying configurations:"
           for user in $(getent passwd | cut -d: -f1,3,6 | awk -F: '$2 >= 1000 && $2 < 60000 {print $1}'); do
             echo "User: $user"
             sudo -u "$user" bash -lc '
               echo "PS1: $PS1"
-              echo "PATH:"
-              echo "$PATH" | tr ":" "\n"
+              echo "Unique PATH:"
+              echo "$PATH" | tr ":" "\n" | sort -u
               echo "DISPLAY: $DISPLAY"
               echo "---"
             '
