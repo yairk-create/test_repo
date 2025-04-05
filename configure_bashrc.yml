@@ -1,13 +1,13 @@
 ---
 - hosts: all
-  become: no
+  become: yes
   tasks:
     - name: Backup existing .bashrc
       copy:
         src: "~/.bashrc"
         dest: "~/.bashrc.backup"
         remote_src: yes
-        force: no
+        force: yes
 
     - name: Create a new .bashrc with custom configurations
       copy:
