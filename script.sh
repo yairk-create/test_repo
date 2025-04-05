@@ -121,33 +121,24 @@ function setup_environment() {
     log "INFO" "Environment setup completed"
 }
 
-# Handle password collection and storage
+# Setup permissions for Ansible usage
 function setup_permissions() {
-    # Skip password collection for macOS with Homebrew
-    if [[ "$PKG_MANAGER" == "brew" ]]; then
-        log "INFO" "No sudo password needed for Homebrew"
-        return 0
-    fi
+    # When running under Ansible, sudo should already be handled
+    log "INFO" "Running with Ansible - sudo access should be pre-configured"
     
-    local password
-    read -rsp "Please insert sudo password: " password
-    echo
-    
-    if [[ -z "$password" ]]; then
-        log "ERROR" "No password provided"
-        return 1
-    fi
-    
-    echo "$password" | base64 > "$SECRET_FILE"
+    # Create a placeholder file to maintain script flow
+    touch "$SECRET_FILE"
     chmod 600 "$SECRET_FILE"
+    echo "ansible-managed" > "$SECRET_FILE"
     
-    if ! echo "$password" | sudo -S true 2>/dev/null; then
-        log "ERROR" "Invalid sudo password"
-        rm -f "$SECRET_FILE"
-        return 1
+    # Test if we have sudo access without password
+    if ! sudo -n true 2>/dev/null; then
+        log "WARNING" "This script expects passwordless sudo or Ansible sudo handling"
+        log "INFO" "Continuing execution assuming Ansible is handling sudo credentials"
+    else
+        log "INFO" "Sudo access verified"
     fi
     
-    log "INFO" "Password verified and stored securely"
     return 0
 }
 
@@ -331,13 +322,11 @@ function install_os_specific_tools() {
         brew link --force coreutils findutils gnu-tar gnu-sed gawk gnutls grep || log "WARNING" "Failed to link some GNU tools"
     elif [[ "$OS" == *"Ubuntu"* ]] || [[ "$OS" == *"Debian"* ]]; then
         log "INFO" "Installing additional tools for Debian/Ubuntu..."
-        local password=$(cat "$SECRET_FILE" | base64 -d)
-        echo "$password" | sudo -S apt install -y software-properties-common build-essential || log "WARNING" "Failed to install some Debian/Ubuntu specific tools"
+        sudo apt install -y software-properties-common build-essential || log "WARNING" "Failed to install some Debian/Ubuntu specific tools"
     elif [[ "$OS" == *"CentOS"* ]] || [[ "$OS" == *"RedHat"* ]] || [[ "$OS" == *"Fedora"* ]]; then
         log "INFO" "Installing additional tools for RHEL/CentOS/Fedora..."
-        local password=$(cat "$SECRET_FILE" | base64 -d)
-        echo "$password" | sudo -S $PKG_MANAGER install -y epel-release || log "WARNING" "Failed to install EPEL repository"
-        echo "$password" | sudo -S $PKG_MANAGER install -y development-tools || log "WARNING" "Failed to install development tools"
+        sudo $PKG_MANAGER install -y epel-release || log "WARNING" "Failed to install EPEL repository"
+        sudo $PKG_MANAGER install -y development-tools || log "WARNING" "Failed to install development tools"
     fi
 }
 
@@ -366,21 +355,13 @@ function install_packages() {
     
     log "INFO" "Starting package installation process"
     
-    # Skip password check for brew
-    if [[ "$PKG_MANAGER" != "brew" ]]; then
-        if [[ ! -f "$SECRET_FILE" ]]; then
-            log "ERROR" "Password file not found"
-            return 1
-        fi
-        local password=$(cat "$SECRET_FILE" | base64 -d)
-    fi
-    
     # Update package manager
     log "INFO" "Updating package repositories..."
     if [[ "$PKG_MANAGER" == "brew" ]]; then
         $UPDATE_CMD || log "WARNING" "Failed to update Homebrew"
     else
-        echo "$password" | sudo -S $UPDATE_CMD || log "WARNING" "Failed to update package repositories"
+        # When run via Ansible, sudo is handled by Ansible
+        sudo $UPDATE_CMD || log "WARNING" "Failed to update package repositories"
     fi
     
     # Map and filter packages for the specific OS
@@ -399,7 +380,8 @@ function install_packages() {
             $PKG_MANAGER install "$pkg" || log "WARNING" "Failed to install $pkg"
         done
     else
-        echo "$password" | sudo -S $PKG_MANAGER $INSTALL_CMD "${packages_to_install[@]}" || {
+        # When run via Ansible, sudo is handled by Ansible
+        sudo $PKG_MANAGER $INSTALL_CMD "${packages_to_install[@]}" || {
             log "ERROR" "Failed to install packages"
             return 1
         }
