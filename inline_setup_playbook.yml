@@ -1,0 +1,31 @@
+---
+- name: Test OS Detection
+  hosts: all
+  become: yes
+  tasks:
+    - name: Create simple test script
+      copy:
+        dest: /tmp/os_test.sh
+        mode: '0755'
+        content: |
+          #!/bin/bash
+          echo "Detecting OS..."
+          if [ -f /etc/os-release ]; then
+            . /etc/os-release
+            echo "OS: $NAME $VERSION_ID"
+          fi
+          if grep -q "Rocky Linux" /etc/redhat-release 2>/dev/null; then
+            echo "Found Rocky Linux!"
+          fi
+          echo "Testing apt-get..."
+          command -v apt-get && sudo apt-get update || echo "apt-get not found"
+          echo "Testing dnf..."
+          command -v dnf && sudo dnf check-update || echo "dnf not found"
+
+    - name: Run test script
+      shell: /tmp/os_test.sh
+      register: test_output
+
+    - name: Display test output
+      debug:
+        var: test_output.stdout_lines
