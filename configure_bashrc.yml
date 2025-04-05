@@ -2,46 +2,45 @@
 - hosts: all
   become: no
   tasks:
-    - name: Ensure .bashrc exists
-      copy:
-        content: ""
-        dest: "~/.bashrc"
-        force: no
-        mode: '0644'
-
-    - name: Add or replace PS1 prompt
+    - name: Append custom PS1 prompt
       lineinfile:
         path: "~/.bashrc"
-        regexp: '^export PS1='
         line: 'export PS1="\[\033[95m\]\u@\h \[\033[32m\]\W\[\033[33m\] [\$(git symbolic-ref --short HEAD 2>/dev/null)]\[\033[00m\]\$ "'
         state: present
+        insertafter: EOF
 
-    - name: Add .local/bin to PATH at the beginning
+    - name: Append .local/bin to PATH
       lineinfile:
         path: "~/.bashrc"
-        regexp: '^export PATH=\$HOME/\.local/bin:'
         line: 'export PATH=$HOME/.local/bin:$PATH'
         state: present
+        insertafter: EOF
 
-    - name: Add /sbin and /usr/sbin to PATH
+    - name: Append /sbin and /usr/sbin to PATH
       lineinfile:
         path: "~/.bashrc"
-        regexp: '^export PATH=.*:/sbin:/usr/sbin'
         line: 'export PATH=$PATH:/sbin:/usr/sbin'
         state: present
+        insertafter: EOF
 
-    - name: Set DISPLAY
+    - name: Append DISPLAY
       lineinfile:
         path: "~/.bashrc"
-        regexp: '^export DISPLAY='
         line: 'export DISPLAY=:0'
         state: present
+        insertafter: EOF
 
-    - name: Debug .bashrc content
-      shell: cat ~/.bashrc
-      register: bashrc_content
+    - name: Verify .bashrc modifications
+      shell: 
+        cmd: |
+          grep 'export PS1=' ~/.bashrc
+          grep 'export PATH=$HOME/.local/bin:$PATH' ~/.bashrc
+          grep 'export PATH=$PATH:/sbin:/usr/sbin' ~/.bashrc
+          grep 'export DISPLAY=:0' ~/.bashrc
+      register: bashrc_check
       changed_when: false
+      ignore_errors: true
 
-    - name: Display .bashrc content
+    - name: Display verification results
       debug:
-        var: bashrc_content.stdout_lines
+        var: bashrc_check.stdout_lines
