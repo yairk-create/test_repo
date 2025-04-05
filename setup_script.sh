@@ -1,5 +1,5 @@
 #!/bin/bash
-# Automated Package Installation and Vim Setup Script with OS Detection
+# Automated Package Installation and Vim Setup Script with OS Detection (Semaphore Compatible)
 
 # Define main paths
 HOME_DIR="$HOME"
@@ -7,6 +7,9 @@ LOG_DIR="$HOME_DIR/logs"
 LOG_FILE="$LOG_DIR/auto_config.log"
 SECRET_DIR="$HOME_DIR/project"
 SECRET_FILE="$SECRET_DIR/.secret"
+
+# Set strict error handling
+set -uo pipefail
 
 # Logging function
 function log() {
@@ -34,8 +37,13 @@ function log() {
     esac
 }
 
-# Detect OS
+# Detect OS function
 function detect_os() {
+    # Default values
+    PKG_MANAGER=""
+    INSTALL_CMD=""
+    UPDATE_CMD=""
+    
     if [ -f /etc/os-release ]; then
         # freedesktop.org and systemd
         . /etc/os-release
@@ -54,14 +62,18 @@ function detect_os() {
         # Older Debian/Ubuntu/etc.
         OS=Debian
         VER=$(cat /etc/debian_version)
-    elif [ -f /etc/SuSe-release ]; then
-        # Older SuSE/etc.
-        OS=SuSE
-    elif [ -f /etc/redhat-release ]; then
-        # Older Red Hat, CentOS, etc.
-        OS=RedHat
     elif [ -f /etc/centos-release ]; then
         OS=CentOS
+        VER=$(cat /etc/centos-release | sed 's/.*release \([0-9]\).*/\1/')
+    elif [ -f /etc/redhat-release ]; then
+        # Older Red Hat, CentOS, etc.
+        if grep -q "Rocky Linux" /etc/redhat-release; then
+            OS="Rocky Linux"
+            VER=$(cat /etc/redhat-release | sed 's/.*release \([0-9]\).*/\1/')
+        else
+            OS=RedHat
+            VER=$(cat /etc/redhat-release | sed 's/.*release \([0-9]\).*/\1/')
+        fi
     elif [ "$(uname)" = "Darwin" ]; then
         # macOS
         OS="macOS"
@@ -74,37 +86,38 @@ function detect_os() {
 
     log "INFO" "Detected OS: $OS $VER"
     
-    # Determine package manager
+    # Determine package manager based on OS
     if [[ "$OS" == *"Ubuntu"* ]] || [[ "$OS" == *"Debian"* ]] || [[ "$OS" == *"Linux Mint"* ]]; then
-        PKG_MANAGER="apt"
-        INSTALL_CMD="apt-get install -y"
-        UPDATE_CMD="apt-get update"
-    elif [[ "$OS" == *"CentOS"* ]] || [[ "$OS" == *"RedHat"* ]] || [[ "$OS" == *"Fedora"* ]] || [[ "$OS" == *"Rocky"* ]]; then
-        # Add Rocky Linux support
-        if [[ "$OS" == *"Rocky"* ]] || [ -x "$(command -v dnf)" ]; then
-            PKG_MANAGER="dnf"
-            INSTALL_CMD="dnf install -y"
-            UPDATE_CMD="dnf check-update || true"  # Returns 100 if updates are available
-        else
-            PKG_MANAGER="yum"
-            INSTALL_CMD="yum install -y"
-            UPDATE_CMD="yum update -y"
-        fi
+        PKG_MANAGER="apt-get"
+        INSTALL_CMD="install -y"
+        UPDATE_CMD="update"
+    elif [[ "$OS" == *"Rocky"* ]] || [[ "$OS" == *"CentOS"* ]] && [[ "$VER" == "8"* ]]; then
+        PKG_MANAGER="dnf"
+        INSTALL_CMD="install -y"
+        UPDATE_CMD="check-update || true"  # Returns 100 if updates are available
+    elif [[ "$OS" == *"CentOS"* ]] || [[ "$OS" == *"RedHat"* ]]; then
+        PKG_MANAGER="yum"
+        INSTALL_CMD="install -y"
+        UPDATE_CMD="update -y"
+    elif [[ "$OS" == *"Fedora"* ]]; then
+        PKG_MANAGER="dnf"
+        INSTALL_CMD="install -y"
+        UPDATE_CMD="check-update || true"
     elif [[ "$OS" == *"Arch"* ]] || [[ "$OS" == *"Manjaro"* ]]; then
         PKG_MANAGER="pacman"
-        INSTALL_CMD="pacman -S --noconfirm"
-        UPDATE_CMD="pacman -Syu --noconfirm"
+        INSTALL_CMD="-S --noconfirm"
+        UPDATE_CMD="-Syu --noconfirm"
     elif [[ "$OS" == *"SUSE"* ]]; then
         PKG_MANAGER="zypper"
-        INSTALL_CMD="zypper install -y"
-        UPDATE_CMD="zypper refresh"
+        INSTALL_CMD="install -y"
+        UPDATE_CMD="refresh"
     elif [[ "$OS" == "macOS" ]]; then
         if command -v brew >/dev/null 2>&1; then
             PKG_MANAGER="brew"
-            INSTALL_CMD="brew install"
-            UPDATE_CMD="brew update"
+            INSTALL_CMD="install"
+            UPDATE_CMD="update"
         else
-            log "ERROR" "Homebrew not found. Please install Homebrew first: https://brew.sh/"
+            log "ERROR" "Homebrew not found on macOS. Please install Homebrew first."
             return 1
         fi
     else
@@ -112,7 +125,7 @@ function detect_os() {
         return 1
     fi
     
-    log "INFO" "Using package manager: $PKG_MANAGER"
+    log "INFO" "Using package manager: $PKG_MANAGER with install command: $INSTALL_CMD"
     return 0
 }
 
@@ -124,22 +137,21 @@ function setup_environment() {
     log "INFO" "Environment setup completed"
 }
 
-# Setup permissions for Ansible usage
+# Setup permissions for Ansible
 function setup_permissions() {
-    # When running under Ansible, sudo should already be handled
     log "INFO" "Running with Ansible - sudo access should be pre-configured"
     
-    # Create a placeholder file to maintain script flow
+    # Create a placeholder file
     touch "$SECRET_FILE"
     chmod 600 "$SECRET_FILE"
     echo "ansible-managed" > "$SECRET_FILE"
     
-    # Test if we have sudo access without password
-    if ! sudo -n true 2>/dev/null; then
-        log "WARNING" "This script expects passwordless sudo or Ansible sudo handling"
-        log "INFO" "Continuing execution assuming Ansible is handling sudo credentials"
-    else
+    # Test sudo access
+    if sudo -n true 2>/dev/null; then
         log "INFO" "Sudo access verified"
+    else
+        log "WARNING" "This script expects passwordless sudo via Ansible"
+        log "INFO" "Continuing execution assuming Ansible is handling sudo credentials"
     fi
     
     return 0
@@ -151,17 +163,10 @@ function map_package_name() {
     local mapped_name="$generic_name"
     
     case "$PKG_MANAGER" in
-        "apt")
+        "apt-get")
             case "$generic_name" in
                 "python") mapped_name="python3" ;;
                 "pip") mapped_name="python3-pip" ;;
-                "nodejs") 
-                    if [[ "$OS" == *"Ubuntu"* ]] && [ "${VER%.*}" -lt 20 ]; then
-                        mapped_name="nodejs"
-                    else
-                        mapped_name="nodejs"
-                    fi
-                    ;;
             esac
             ;;
         "yum"|"dnf")
@@ -169,9 +174,6 @@ function map_package_name() {
                 "vim-nox") mapped_name="vim-enhanced" ;;
                 "python") mapped_name="python3" ;;
                 "pip") mapped_name="python3-pip" ;;
-                "net-tools") mapped_name="net-tools" ;;
-                "iftop") mapped_name="iftop" ;;
-                "ncdu") mapped_name="ncdu" ;;
             esac
             ;;
         "pacman")
@@ -179,8 +181,6 @@ function map_package_name() {
                 "vim-nox") mapped_name="vim" ;;
                 "python") mapped_name="python" ;;
                 "pip") mapped_name="python-pip" ;;
-                "nodejs") mapped_name="nodejs" ;;
-                "htop") mapped_name="htop" ;;
             esac
             ;;
         "brew")
@@ -293,7 +293,7 @@ endfunction
 nnoremap <F2> :call ToggleLineNumbers()<CR>
 EOL
 
-    # For macOS, add some specific settings
+    # For macOS, add specific settings
     if [[ "$OS" == "macOS" ]]; then
         cat >> "$HOME/.vimrc" << 'EOL'
 
@@ -320,14 +320,15 @@ function install_os_specific_tools() {
     if [[ "$OS" == "macOS" ]]; then
         log "INFO" "Installing macOS specific tools..."
         brew install coreutils findutils gnu-tar gnu-sed gawk gnutls grep || log "WARNING" "Some macOS-specific tools failed to install"
-        
-        # Link GNU tools with 'g' prefix
-        brew link --force coreutils findutils gnu-tar gnu-sed gawk gnutls grep || log "WARNING" "Failed to link some GNU tools"
     elif [[ "$OS" == *"Ubuntu"* ]] || [[ "$OS" == *"Debian"* ]]; then
         log "INFO" "Installing additional tools for Debian/Ubuntu..."
         sudo apt-get install -y software-properties-common build-essential || log "WARNING" "Failed to install some Debian/Ubuntu specific tools"
-    elif [[ "$OS" == *"CentOS"* ]] || [[ "$OS" == *"RedHat"* ]] || [[ "$OS" == *"Fedora"* ]] || [[ "$OS" == *"Rocky"* ]]; then
-        log "INFO" "Installing additional tools for RHEL/CentOS/Fedora/Rocky..."
+    elif [[ "$OS" == *"Rocky"* ]]; then
+        log "INFO" "Installing additional tools for Rocky Linux..."
+        sudo dnf install -y epel-release || log "WARNING" "Failed to install EPEL repository"
+        sudo dnf group install -y "Development Tools" || log "WARNING" "Failed to install development tools"
+    elif [[ "$OS" == *"CentOS"* ]] || [[ "$OS" == *"RedHat"* ]] || [[ "$OS" == *"Fedora"* ]]; then
+        log "INFO" "Installing additional tools for RHEL/CentOS/Fedora..."
         if [[ "$PKG_MANAGER" == "dnf" ]]; then
             sudo dnf install -y epel-release || log "WARNING" "Failed to install EPEL repository"
             sudo dnf group install -y "Development Tools" || log "WARNING" "Failed to install development tools"
@@ -366,17 +367,9 @@ function install_packages() {
     # Update package manager
     log "INFO" "Updating package repositories..."
     if [[ "$PKG_MANAGER" == "brew" ]]; then
-        $UPDATE_CMD || log "WARNING" "Failed to update Homebrew"
+        $PKG_MANAGER $UPDATE_CMD || log "WARNING" "Failed to update Homebrew"
     else
-        # When run via Ansible, sudo is handled by Ansible
-        case "$PKG_MANAGER" in
-            "apt")
-                sudo apt-get update || log "WARNING" "Failed to update package repositories"
-                ;;
-            *)
-                sudo $UPDATE_CMD || log "WARNING" "Failed to update package repositories"
-                ;;
-        esac
+        sudo $PKG_MANAGER $UPDATE_CMD || log "WARNING" "Failed to update package repositories"
     fi
     
     # Map and filter packages for the specific OS
@@ -392,36 +385,13 @@ function install_packages() {
     if [[ "$PKG_MANAGER" == "brew" ]]; then
         for pkg in "${packages_to_install[@]}"; do
             log "INFO" "Installing $pkg..."
-            $PKG_MANAGER install "$pkg" || log "WARNING" "Failed to install $pkg"
+            $PKG_MANAGER $INSTALL_CMD "$pkg" || log "WARNING" "Failed to install $pkg"
         done
     else
-        # When run via Ansible, sudo is handled by Ansible
-        case "$PKG_MANAGER" in
-            "apt")
-                sudo apt-get install -y "${packages_to_install[@]}" || {
-                    log "ERROR" "Failed to install packages"
-                    return 1
-                }
-                ;;
-            "dnf")
-                sudo dnf install -y "${packages_to_install[@]}" || {
-                    log "ERROR" "Failed to install packages"
-                    return 1
-                }
-                ;;
-            "yum")
-                sudo yum install -y "${packages_to_install[@]}" || {
-                    log "ERROR" "Failed to install packages"
-                    return 1
-                }
-                ;;
-            *)
-                sudo $PKG_MANAGER $INSTALL_CMD "${packages_to_install[@]}" || {
-                    log "ERROR" "Failed to install packages"
-                    return 1
-                }
-                ;;
-        esac
+        sudo $PKG_MANAGER $INSTALL_CMD ${packages_to_install[@]} || {
+            log "ERROR" "Failed to install packages"
+            return 1
+        }
     fi
     
     # Install OS-specific additional tools
@@ -472,4 +442,5 @@ function main() {
     log "INFO" "Script completed successfully"
 }
 
+# Execute main function
 main
