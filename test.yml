@@ -1,13 +1,23 @@
 ---
-- name: Direct sudo test
+- name: Diagnostic sudo test
   hosts: web_servers
-  become: yes
+  gather_facts: yes
   
   tasks:
-  - name: Run a command that must be root
-    shell: "id"
-    register: id_output
+  - name: Test passwordless sudo
+    shell: "sudo -n id"
+    ignore_errors: yes
+    register: passwordless_sudo
     
-  - name: Display output
+  - name: Show result of passwordless sudo test
     debug:
-      var: id_output.stdout
+      var: passwordless_sudo.stdout
+      
+  - name: Create a test file in /root
+    shell: "echo 'test' | sudo -S tee /root/ansible_test_file.txt"
+    register: test_file
+    ignore_errors: yes
+    
+  - name: Show result of test file creation
+    debug:
+      var: test_file
