@@ -1,0 +1,260 @@
+---
+# Automated package installation and Vim setup playbook
+- name: Setup Development Environment
+  hosts: all
+  become: yes  # Enable sudo for all tasks
+  gather_facts: yes  # Enable OS detection
+
+  vars:
+    log_dir: "{{ ansible_env.HOME }}/logs"
+    vim_autoload_dir: "{{ ansible_env.HOME }}/.vim/autoload"
+
+  tasks:
+    - name: Create log directory
+      file:
+        path: "{{ log_dir }}"
+        state: directory
+        mode: '0755'
+
+    # Detect OS type and set facts
+    - name: Set OS-specific variables for Ubuntu/Debian
+      set_fact:
+        pkg_manager: apt-get
+        install_cmd: "install -y"
+        update_cmd: "update"
+        python_pkg: "python3"
+        pip_pkg: "python3-pip"
+        vim_pkg: "vim-nox"
+        additional_pkgs: ["software-properties-common", "build-essential"]
+      when: ansible_distribution == 'Ubuntu' or ansible_distribution == 'Debian'
+
+    - name: Set OS-specific variables for Rocky Linux
+      set_fact:
+        pkg_manager: dnf
+        install_cmd: "install -y"
+        update_cmd: "check-update || true"  # Returns 100 if updates are available
+        python_pkg: "python3"
+        pip_pkg: "python3-pip"
+        vim_pkg: "vim-enhanced"
+        additional_pkgs: ["epel-release", "gcc", "make", "gcc-c++"]
+      when: ansible_distribution == 'Rocky'
+
+    - name: Set OS-specific variables for CentOS/RHEL
+      set_fact:
+        pkg_manager: "{{ 'dnf' if ansible_distribution_major_version|int >= 8 else 'yum' }}"
+        install_cmd: "install -y"
+        update_cmd: "{{ 'check-update || true' if ansible_distribution_major_version|int >= 8 else 'update -y' }}"
+        python_pkg: "python3"
+        pip_pkg: "python3-pip"
+        vim_pkg: "vim-enhanced"
+        additional_pkgs: ["epel-release", "gcc", "make", "gcc-c++"]
+      when: ansible_distribution == 'CentOS' or ansible_distribution == 'RedHat'
+
+    # Debug OS details
+    - name: Display OS information
+      debug:
+        msg: "Detected OS: {{ ansible_distribution }} {{ ansible_distribution_version }}, using {{ pkg_manager }}"
+
+    # Update package repositories
+    - name: Update apt repositories
+      apt:
+        update_cache: yes
+      when: ansible_distribution == 'Ubuntu' or ansible_distribution == 'Debian'
+
+    - name: Update dnf/yum repositories
+      command: "{{ pkg_manager }} {{ update_cmd }}"
+      register: repo_update
+      changed_when: repo_update.rc == 0 or repo_update.rc == 100
+      failed_when: repo_update.rc != 0 and repo_update.rc != 100
+      when: ansible_distribution == 'Rocky' or ansible_distribution == 'CentOS' or ansible_distribution == 'RedHat'
+
+    # Install base packages
+    - name: Install base packages with apt
+      apt:
+        name:
+          - "{{ vim_pkg }}"
+          - htop
+          - curl
+          - git
+          - ssh
+          - net-tools
+          - wget
+          - tmux
+          - nmap
+          - tree
+          - neofetch
+          - iftop
+          - ncdu
+          - nodejs
+          - "{{ python_pkg }}"
+          - "{{ pip_pkg }}"
+        state: present
+      when: ansible_distribution == 'Ubuntu' or ansible_distribution == 'Debian'
+
+    - name: Install base packages with dnf/yum
+      package:
+        name:
+          - "{{ vim_pkg }}"
+          - htop
+          - curl
+          - git
+          - openssh-clients
+          - net-tools
+          - wget
+          - tmux
+          - nmap
+          - tree
+          - neofetch
+          - iftop
+          - ncdu
+          - nodejs
+          - "{{ python_pkg }}"
+          - "{{ pip_pkg }}"
+        state: present
+      when: ansible_distribution == 'Rocky' or ansible_distribution == 'CentOS' or ansible_distribution == 'RedHat'
+
+    # Install OS-specific packages
+    - name: Install additional packages for Ubuntu/Debian
+      apt:
+        name: "{{ additional_pkgs }}"
+        state: present
+      when: ansible_distribution == 'Ubuntu' or ansible_distribution == 'Debian'
+
+    - name: Install additional packages for Rocky/CentOS/RHEL
+      package:
+        name: "{{ additional_pkgs }}"
+        state: present
+      when: ansible_distribution == 'Rocky' or ansible_distribution == 'CentOS' or ansible_distribution == 'RedHat'
+
+    - name: Install development tools for Rocky/CentOS/RHEL
+      command: "{{ pkg_manager }} group install -y 'Development Tools'"
+      register: devtools_result
+      changed_when: "'Nothing to do' not in devtools_result.stdout"
+      when: ansible_distribution == 'Rocky' or ansible_distribution == 'CentOS' or ansible_distribution == 'RedHat'
+
+    # Set up Vim
+    - name: Create Vim autoload directory
+      file:
+        path: "{{ vim_autoload_dir }}"
+        state: directory
+        mode: '0755'
+
+    - name: Download Vim-plug
+      get_url:
+        url: https://raw.githubusercontent.com/junegunn/vim-plug/master/plug.vim
+        dest: "{{ vim_autoload_dir }}/plug.vim"
+        mode: '0644'
+
+    - name: Create Vim config
+      template:
+        src: vimrc.j2
+        dest: "{{ ansible_env.HOME }}/.vimrc"
+        mode: '0644'
+      vars:
+        vimrc_content: |
+          " Vim-Plug Configuration
+          call plug#begin()
+
+          " Plugins
+          Plug 'sheerun/vim-polyglot'
+          Plug 'preservim/nerdtree', { 'on': 'NERDTreeToggle' }
+          Plug 'LunarWatcher/auto-pairs'
+          Plug 'maxboisvert/vim-simple-complete'
+          Plug 'liuchengxu/space-vim-dark'
+          Plug 'godlygeek/tabular'
+          Plug 'preservim/vim-markdown'
+          Plug 'tpope/vim-fugitive'
+          Plug 'vim-airline/vim-airline'
+          Plug 'vim-airline/vim-airline-themes'
+          Plug 'tomasr/molokai'
+          Plug 'sainnhe/sonokai'
+          Plug 'mg979/vim-visual-multi', {'branch': 'master'}
+          Plug 'sillybun/vim-repl'
+
+          call plug#end()
+
+          " Basic Settings
+          syntax enable
+          set number
+          set relativenumber
+          set expandtab
+          set tabstop=4
+          set shiftwidth=4
+          set autoindent
+          set smartindent
+          set cursorline
+          set showmatch
+          set incsearch
+          set hlsearch
+          set ignorecase
+          set smartcase
+          set wrap
+          set linebreak
+          set showcmd
+          set showmode
+          set history=1000
+          set wildmenu
+          set wildmode=list:longest
+          set mouse=a
+
+          " Color scheme
+          colorscheme desert
+          if has('termguicolors')
+              set termguicolors
+              try
+                  colorscheme sonokai
+              catch
+                  try
+                      colorscheme molokai
+                  catch
+                  endtry
+              endtry
+          endif
+
+          " Key mappings
+          nnoremap <C-n> :NERDTreeToggle<CR>
+          let g:airline_powerline_fonts = 1
+          let g:airline_theme='sonokai'
+
+          " Custom functions
+          function! ToggleLineNumbers()
+              if(&relativenumber == 1)
+                  set norelativenumber
+                  set nonumber
+              else
+                  set relativenumber
+                  set number
+              endif
+          endfunction
+
+          " Custom keymaps
+          nnoremap <F2> :call ToggleLineNumbers()<CR>
+
+          {% if ansible_distribution == 'MacOSX' %}
+          " macOS specific settings
+          if has("mac")
+              set clipboard=unnamed
+              " Fix backspace
+              set backspace=indent,eol,start
+          endif
+          {% endif %}
+
+    - name: Install Vim plugins
+      command: vim +PlugInstall +qall
+      register: vim_plugin_install
+      changed_when: true
+      failed_when: false
+
+    - name: Show Vim plugin installation result
+      debug:
+        msg: "Vim plugin installation completed. Any errors will be shown above."
+
+    # Log completion
+    - name: Create completion log
+      copy:
+        dest: "{{ log_dir }}/setup_complete.log"
+        content: "Setup completed successfully on {{ ansible_date_time.iso8601 }}\nOS: {{ ansible_distribution }} {{ ansible_distribution_version }}\n"
+
+    - name: Display completion message
+      debug:
+        msg: "Development environment setup completed successfully!"
