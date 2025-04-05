@@ -2,6 +2,7 @@
 - hosts: all
   become: yes
   vars:
+    backup_dir: "/root/bashrc_backups"
     custom_bashrc_content: |
       # Custom bash configuration
       
@@ -27,13 +28,11 @@
       export DISPLAY=:0
 
   tasks:
-    - name: Update system-wide skel .bashrc
-      copy:
-        content: "{{ custom_bashrc_content }}"
-        dest: /etc/skel/.bashrc
-        owner: root
-        group: root
-        mode: '0644'
+    - name: Create backup directory
+      file:
+        path: "{{ backup_dir }}"
+        state: directory
+        mode: '0755'
 
     - name: Find specific users to update
       shell: 
@@ -41,6 +40,26 @@
           getent passwd | cut -d: -f1,3,6 | awk -F: '$2 >= 1000 && $2 < 60000 {print $1 ":" $3}'
       register: user_list
       changed_when: false
+
+    - name: Backup existing .bashrc for each user
+      become: yes
+      become_user: "{{ item.split(':')[0] }}"
+      copy:
+        src: "~/.bashrc"
+        dest: "{{ backup_dir }}/bashrc_{{ item.split(':')[0] }}_$(date +%Y%m%d_%H%M%S)"
+        remote_src: yes
+      loop: "{{ user_list.stdout_lines }}"
+      loop_control:
+        label: "{{ item.split(':')[0] }}"
+      ignore_errors: yes
+
+    - name: Update system-wide skel .bashrc
+      copy:
+        content: "{{ custom_bashrc_content }}"
+        dest: /etc/skel/.bashrc
+        owner: root
+        group: root
+        mode: '0644'
 
     - name: Update .bashrc for specific users
       become: yes
@@ -57,6 +76,9 @@
     - name: Verify configurations for specific users
       shell: 
         cmd: |
+          echo "Backups saved in {{ backup_dir }}:"
+          ls -l "{{ backup_dir }}"
+          echo "---"
           echo "Verifying configurations:"
           for user in $(getent passwd | cut -d: -f1,3,6 | awk -F: '$2 >= 1000 && $2 < 60000 {print $1}'); do
             echo "User: $user"
