@@ -1,88 +1,76 @@
 ---
 - hosts: all
-  become: yes  # Use sudo for system-wide changes
+  become: yes
+  vars:
+    custom_bashrc_content: |
+      # Custom bash configuration
+      
+      # If not running interactively, don't do anything
+      case $- in
+          *i*) ;;
+            *) return;;
+      esac
+
+      # Preserve existing history settings
+      HISTCONTROL=ignoreboth
+      shopt -s histappend
+      HISTSIZE=1000
+      HISTFILESIZE=2000
+
+      # Check window size after each command
+      shopt -s checkwinsize
+
+      # Custom Prompt and Path Configurations
+      export PS1="\[\033[95m\]\u@\h \[\033[32m\]\W\[\033[33m\] [\$(git symbolic-ref --short HEAD 2>/dev/null)]\[\033[00m\]\$ "
+      export PATH=$HOME/.local/bin:$HOME/bin:$PATH
+      export PATH=$PATH:/sbin:/usr/sbin
+      export DISPLAY=:0
+
   tasks:
-    - name: Ensure .bashrc template exists for all users
+    - name: Update system-wide skel .bashrc
       copy:
-        content: |
-          # System-wide .bashrc template
-          
-          # If not running interactively, don't do anything
-          case $- in
-              *i*) ;;
-                *) return;;
-          esac
-
-          # Preserve existing history settings
-          HISTCONTROL=ignoreboth
-          shopt -s histappend
-          HISTSIZE=1000
-          HISTFILESIZE=2000
-
-          # Check window size after each command
-          shopt -s checkwinsize
-
-          # Custom Prompt and Path Configurations
-          export PS1="\[\033[95m\]\u@\h \[\033[32m\]\W\[\033[33m\] [\$(git symbolic-ref --short HEAD 2>/dev/null)]\[\033[00m\]\$ "
-          export PATH=$HOME/.local/bin:$HOME/bin:$PATH
-          export PATH=$PATH:/sbin:/usr/sbin
-          export DISPLAY=:0
+        content: "{{ custom_bashrc_content }}"
         dest: /etc/skel/.bashrc
-        mode: '0644'
         owner: root
         group: root
-
-    - name: Find all existing home directories
-      shell: find /home -maxdepth 1 -type d -not -path '*/\.*'
-      register: home_dirs
-      changed_when: false
-
-    - name: Update .bashrc for existing users
-      copy:
-        content: |
-          # If not running interactively, don't do anything
-          case $- in
-              *i*) ;;
-                *) return;;
-          esac
-
-          # Preserve existing history settings
-          HISTCONTROL=ignoreboth
-          shopt -s histappend
-          HISTSIZE=1000
-          HISTFILESIZE=2000
-
-          # Check window size after each command
-          shopt -s checkwinsize
-
-          # Custom Prompt and Path Configurations
-          export PS1="\[\033[95m\]\u@\h \[\033[32m\]\W\[\033[33m\] [\$(git symbolic-ref --short HEAD 2>/dev/null)]\[\033[00m\]\$ "
-          export PATH=$HOME/.local/bin:$HOME/bin:$PATH
-          export PATH=$PATH:/sbin:/usr/sbin
-          export DISPLAY=:0
-        dest: "{{ item }}/.bashrc"
         mode: '0644'
-        owner: "{{ item | basename }}"
-        group: "{{ item | basename }}"
-      loop: "{{ home_dirs.stdout_lines }}"
-      ignore_errors: yes  # In case of permission issues with some directories
 
-    - name: Verify .bashrc configurations
+    - name: Find specific users to update
       shell: 
         cmd: |
-          for dir in $(find /home -maxdepth 1 -type d -not -path '*/\.*'); do
-            echo "Checking $dir:"
-            sudo -u $(basename $dir) bash -lc "
-              echo 'PS1: $PS1'
-              echo 'PATH:'
-              echo '$PATH' | tr ':' '\n'
-              echo 'DISPLAY: $DISPLAY'
-              echo '---'
-            "
+          getent passwd | cut -d: -f1,3,6 | awk -F: '$2 >= 1000 && $2 < 60000 {print $1 ":" $3}'
+      register: user_list
+      changed_when: false
+
+    - name: Update .bashrc for specific users
+      become: yes
+      become_user: "{{ item.split(':')[0] }}"
+      copy:
+        content: "{{ custom_bashrc_content }}"
+        dest: "~/.bashrc"
+        mode: '0644'
+      loop: "{{ user_list.stdout_lines }}"
+      loop_control:
+        label: "{{ item.split(':')[0] }}"
+      ignore_errors: yes
+
+    - name: Verify configurations for specific users
+      shell: 
+        cmd: |
+          echo "Verifying configurations:"
+          for user in $(getent passwd | cut -d: -f1,3,6 | awk -F: '$2 >= 1000 && $2 < 60000 {print $1}'); do
+            echo "User: $user"
+            sudo -u "$user" bash -lc '
+              echo "PS1: $PS1"
+              echo "PATH:"
+              echo "$PATH" | tr ":" "\n"
+              echo "DISPLAY: $DISPLAY"
+              echo "---"
+            '
           done
-      register: bashrc_verification
+      register: config_verification
       changed_when: false
 
     - name: Display verification results
       debug:
-        var: bashrc_verification.stdout_lines
+        var: config_verification.stdout_lines
