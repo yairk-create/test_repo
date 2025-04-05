@@ -1,19 +1,11 @@
 ---
 - hosts: all
-  become: no
+  become: yes  # Use sudo for system-wide changes
   tasks:
-    - name: Backup existing .bashrc
-      copy:
-        src: "~/.bashrc"
-        dest: "~/.bashrc.backup"
-        remote_src: yes
-        force: no
-
-    - name: Create a new .bashrc with custom configurations
+    - name: Ensure .bashrc template exists for all users
       copy:
         content: |
-          # Existing bash configuration
-          # ~/.bashrc: executed by bash(1) for non-login shells.
+          # System-wide .bashrc template
           
           # If not running interactively, don't do anything
           case $- in
@@ -35,25 +27,61 @@
           export PATH=$HOME/.local/bin:$HOME/bin:$PATH
           export PATH=$PATH:/sbin:/usr/sbin
           export DISPLAY=:0
-        dest: "~/.bashrc"
+        dest: /etc/skel/.bashrc
         mode: '0644'
+        owner: root
+        group: root
 
-    - name: Verify .bashrc configuration
+    - name: Find all existing home directories
+      shell: find /home -maxdepth 1 -type d -not -path '*/\.*'
+      register: home_dirs
+      changed_when: false
+
+    - name: Update .bashrc for existing users
+      copy:
+        content: |
+          # If not running interactively, don't do anything
+          case $- in
+              *i*) ;;
+                *) return;;
+          esac
+
+          # Preserve existing history settings
+          HISTCONTROL=ignoreboth
+          shopt -s histappend
+          HISTSIZE=1000
+          HISTFILESIZE=2000
+
+          # Check window size after each command
+          shopt -s checkwinsize
+
+          # Custom Prompt and Path Configurations
+          export PS1="\[\033[95m\]\u@\h \[\033[32m\]\W\[\033[33m\] [\$(git symbolic-ref --short HEAD 2>/dev/null)]\[\033[00m\]\$ "
+          export PATH=$HOME/.local/bin:$HOME/bin:$PATH
+          export PATH=$PATH:/sbin:/usr/sbin
+          export DISPLAY=:0
+        dest: "{{ item }}/.bashrc"
+        mode: '0644'
+        owner: "{{ item | basename }}"
+        group: "{{ item | basename }}"
+      loop: "{{ home_dirs.stdout_lines }}"
+      ignore_errors: yes  # In case of permission issues with some directories
+
+    - name: Verify .bashrc configurations
       shell: 
         cmd: |
-          source ~/.bashrc
-          echo "PS1 Setting:"
-          echo "$PS1"
-          echo "---"
-          echo "PATH:"
-          echo "$PATH" | tr ':' '\n'
-          echo "---"
-          echo "DISPLAY:"
-          echo "$DISPLAY"
+          for dir in $(find /home -maxdepth 1 -type d -not -path '*/\.*'); do
+            echo "Checking $dir:"
+            sudo -u $(basename $dir) bash -lc "
+              echo 'PS1: $PS1'
+              echo 'PATH:'
+              echo '$PATH' | tr ':' '\n'
+              echo 'DISPLAY: $DISPLAY'
+              echo '---'
+            "
+          done
       register: bashrc_verification
       changed_when: false
-      args:
-        executable: /bin/bash
 
     - name: Display verification results
       debug:
