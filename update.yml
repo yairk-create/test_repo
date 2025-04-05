@@ -1,0 +1,58 @@
+---
+- hosts: web_servers
+  become: true
+  tasks:
+    - name: Update apt cache (Debian/Ubuntu)
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+      when: ansible_os_family == "Debian"
+
+    - name: Upgrade all packages (Debian/Ubuntu)
+      apt:
+        upgrade: dist
+        force_apt_get: yes
+      when: ansible_os_family == "Debian"
+
+    - name: Update yum cache (RedHat/CentOS)
+      yum:
+        update_cache: yes
+      when: ansible_os_family == "RedHat"
+
+    - name: Upgrade all packages (RedHat/CentOS)
+      yum:
+        name: '*'
+        state: latest
+      when: ansible_os_family == "RedHat"
+
+    - name: Update dnf cache (Fedora)
+      dnf:
+        update_cache: yes
+      when: ansible_distribution == "Fedora"
+
+    - name: Upgrade all packages (Fedora)
+      dnf:
+        name: '*'
+        state: latest
+      when: ansible_distribution == "Fedora"
+
+    - name: Update pacman cache (Arch Linux)
+      pacman:
+        update_cache: yes
+      when: ansible_distribution == "Archlinux"
+
+    - name: Upgrade all packages (Arch Linux)
+      pacman:
+        upgrade: yes
+      when: ansible_distribution == "Archlinux"
+
+    - name: Update zypper cache (openSUSE)
+      zypper:
+        update_cache: yes
+      when: ansible_os_family == "Suse"
+
+    - name: Upgrade all packages (openSUSE)
+      zypper:
+        name: '*'
+        state: latest
+      when: ansible_os_family == "Suse"
