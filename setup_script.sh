@@ -77,16 +77,19 @@ function detect_os() {
     # Determine package manager
     if [[ "$OS" == *"Ubuntu"* ]] || [[ "$OS" == *"Debian"* ]] || [[ "$OS" == *"Linux Mint"* ]]; then
         PKG_MANAGER="apt"
-        INSTALL_CMD="apt install -y"
-        UPDATE_CMD="apt update -y"
-    elif [[ "$OS" == *"CentOS"* ]] || [[ "$OS" == *"RedHat"* ]] || [[ "$OS" == *"Fedora"* ]]; then
-        PKG_MANAGER="yum"
-        INSTALL_CMD="yum install -y"
-        UPDATE_CMD="yum update -y"
-    elif [[ "$OS" == *"Fedora"* ]] && [ "$VER" -ge 22 ]; then
-        PKG_MANAGER="dnf"
-        INSTALL_CMD="dnf install -y"
-        UPDATE_CMD="dnf check-update"
+        INSTALL_CMD="apt-get install -y"
+        UPDATE_CMD="apt-get update"
+    elif [[ "$OS" == *"CentOS"* ]] || [[ "$OS" == *"RedHat"* ]] || [[ "$OS" == *"Fedora"* ]] || [[ "$OS" == *"Rocky"* ]]; then
+        # Add Rocky Linux support
+        if [[ "$OS" == *"Rocky"* ]] || [ -x "$(command -v dnf)" ]; then
+            PKG_MANAGER="dnf"
+            INSTALL_CMD="dnf install -y"
+            UPDATE_CMD="dnf check-update || true"  # Returns 100 if updates are available
+        else
+            PKG_MANAGER="yum"
+            INSTALL_CMD="yum install -y"
+            UPDATE_CMD="yum update -y"
+        fi
     elif [[ "$OS" == *"Arch"* ]] || [[ "$OS" == *"Manjaro"* ]]; then
         PKG_MANAGER="pacman"
         INSTALL_CMD="pacman -S --noconfirm"
@@ -322,11 +325,16 @@ function install_os_specific_tools() {
         brew link --force coreutils findutils gnu-tar gnu-sed gawk gnutls grep || log "WARNING" "Failed to link some GNU tools"
     elif [[ "$OS" == *"Ubuntu"* ]] || [[ "$OS" == *"Debian"* ]]; then
         log "INFO" "Installing additional tools for Debian/Ubuntu..."
-        sudo apt install -y software-properties-common build-essential || log "WARNING" "Failed to install some Debian/Ubuntu specific tools"
-    elif [[ "$OS" == *"CentOS"* ]] || [[ "$OS" == *"RedHat"* ]] || [[ "$OS" == *"Fedora"* ]]; then
-        log "INFO" "Installing additional tools for RHEL/CentOS/Fedora..."
-        sudo $PKG_MANAGER install -y epel-release || log "WARNING" "Failed to install EPEL repository"
-        sudo $PKG_MANAGER install -y development-tools || log "WARNING" "Failed to install development tools"
+        sudo apt-get install -y software-properties-common build-essential || log "WARNING" "Failed to install some Debian/Ubuntu specific tools"
+    elif [[ "$OS" == *"CentOS"* ]] || [[ "$OS" == *"RedHat"* ]] || [[ "$OS" == *"Fedora"* ]] || [[ "$OS" == *"Rocky"* ]]; then
+        log "INFO" "Installing additional tools for RHEL/CentOS/Fedora/Rocky..."
+        if [[ "$PKG_MANAGER" == "dnf" ]]; then
+            sudo dnf install -y epel-release || log "WARNING" "Failed to install EPEL repository"
+            sudo dnf group install -y "Development Tools" || log "WARNING" "Failed to install development tools"
+        else
+            sudo yum install -y epel-release || log "WARNING" "Failed to install EPEL repository"
+            sudo yum groupinstall -y "Development Tools" || log "WARNING" "Failed to install development tools"
+        fi
     fi
 }
 
@@ -361,7 +369,14 @@ function install_packages() {
         $UPDATE_CMD || log "WARNING" "Failed to update Homebrew"
     else
         # When run via Ansible, sudo is handled by Ansible
-        sudo $UPDATE_CMD || log "WARNING" "Failed to update package repositories"
+        case "$PKG_MANAGER" in
+            "apt")
+                sudo apt-get update || log "WARNING" "Failed to update package repositories"
+                ;;
+            *)
+                sudo $UPDATE_CMD || log "WARNING" "Failed to update package repositories"
+                ;;
+        esac
     fi
     
     # Map and filter packages for the specific OS
@@ -381,10 +396,32 @@ function install_packages() {
         done
     else
         # When run via Ansible, sudo is handled by Ansible
-        sudo $PKG_MANAGER $INSTALL_CMD "${packages_to_install[@]}" || {
-            log "ERROR" "Failed to install packages"
-            return 1
-        }
+        case "$PKG_MANAGER" in
+            "apt")
+                sudo apt-get install -y "${packages_to_install[@]}" || {
+                    log "ERROR" "Failed to install packages"
+                    return 1
+                }
+                ;;
+            "dnf")
+                sudo dnf install -y "${packages_to_install[@]}" || {
+                    log "ERROR" "Failed to install packages"
+                    return 1
+                }
+                ;;
+            "yum")
+                sudo yum install -y "${packages_to_install[@]}" || {
+                    log "ERROR" "Failed to install packages"
+                    return 1
+                }
+                ;;
+            *)
+                sudo $PKG_MANAGER $INSTALL_CMD "${packages_to_install[@]}" || {
+                    log "ERROR" "Failed to install packages"
+                    return 1
+                }
+                ;;
+        esac
     fi
     
     # Install OS-specific additional tools
