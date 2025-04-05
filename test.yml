@@ -1,17 +1,13 @@
 ---
-- name: Test sudo permissions
+- name: Direct sudo test
   hosts: web_servers
+  become: yes
   
   tasks:
-  - name: Test sudo access with explicit become
-    command: whoami
-    become: yes
-    register: whoami_result
-
-  - name: Display result
-    debug:
-      var: whoami_result.stdout
+  - name: Run a command that must be root
+    shell: "id"
+    register: id_output
     
-  - name: Check effective user
+  - name: Display output
     debug:
-      msg: "If sudo is working correctly, this should show 'root'. Current user is {{ whoami_result.stdout }}"
+      var: id_output.stdout
